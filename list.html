@@ -1,0 +1,490 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <meta charset="UTF-8" />
+  <title>لیست سرویس‌ها</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <style>
+    body {
+      font-family: 'BYekan', sans-serif;
+      background-color: #f2f2f2;
+      margin: 0;
+      padding: 20px;
+    }
+    h2 {
+      margin-bottom: 20px;
+      text-align: center;
+    }
+    #balanceDisplay {
+      font-weight: bold;
+      margin-bottom: 20px;
+      font-size: 18px;
+      text-align: center;
+    }
+    #statusMessage {
+      text-align: center;
+      margin-bottom: 15px;
+      color: green;
+      font-weight: bold;
+      display: none;
+    }
+    #searchInput {
+      width: 100%;
+      max-width: 400px;
+      margin: 0 auto 20px auto;
+      display: block;
+      padding: 10px 15px;
+      font-size: 16px;
+      border: 1.5px solid #ccc;
+      border-radius: 8px;
+      box-sizing: border-box;
+      transition: border-color 0.3s;
+    }
+    #searchInput:focus {
+      outline: none;
+      border-color: #2196F3;
+    }
+    .service-card {
+      background-color: #fff;
+      border-radius: 12px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+      padding: 15px;
+      margin-bottom: 15px;
+      transition: 0.3s;
+    }
+    .service-card.inactive {
+      opacity: 0.5;
+    }
+    .service-title {
+      font-size: 18px;
+      margin-bottom: 8px;
+      font-weight: bold;
+      word-break: break-word;
+    }
+    .service-info {
+      font-size: 14px;
+      color: #555;
+      margin-bottom: 12px;
+    }
+    .buttons {
+      display: flex;
+      justify-content: flex-start; /* به جای space-between */
+      align-items: center;
+      gap: 10px;
+    }
+    .buttons .left-buttons {
+      display: flex;
+      gap: 8px;
+    }
+    .buttons button {
+      padding: 6px 12px;
+      border: none;
+      border-radius: 6px;
+      font-size: 14px;
+      cursor: pointer;
+    }
+    .btn-renew {
+      background-color: #4CAF50;
+      color: white;
+    }
+    .btn-delete {
+      background-color: #f44336;
+      color: white;
+    }
+    .btn-view {
+      background-color: #2196F3;
+      color: white;
+    }
+    #pagination {
+      text-align: center;
+      margin-top: 20px;
+    }
+    #pagination button {
+      margin: 0 5px;
+      padding: 6px 12px;
+      border: 1px solid #ccc;
+      background-color: white;
+      cursor: pointer;
+      border-radius: 4px;
+    }
+    #pagination button.active {
+      background-color: #2196F3;
+      color: white;
+      border-color: #2196F3;
+    }
+    #pagination button:disabled {
+      cursor: not-allowed;
+      opacity: 0.5;
+    }
+      #messageBox {
+      color: red;
+      font-size: 15px;
+      margin-bottom: 10px;
+      min-height: 20px;
+    }
+
+    .btn-status {
+     padding: 6px 12px;
+     border: none;
+     border-radius: 6px;
+     font-size: 14px;
+     cursor: pointer;
+     color: white;
+     min-width: 90px;
+     text-align: center;
+   }
+   .btn-status.active {
+     background-color: #4CAF50; /* سبز */
+   }
+   .btn-status.inactive {
+     background-color: #f44336; /* قرمز */
+   }
+
+  </style>
+</head>
+<body>
+
+  <h2>لیست سرویس‌ها</h2>
+  <div id="balanceDisplay">در حال بارگذاری موجودی...</div>
+  <div id="messageBox"></div>
+  <div id="statusMessage"></div>
+
+  <input
+    type="text"
+    id="searchInput"
+    placeholder="جستجو بر اساس نام کاربری..."
+    autocomplete="off"
+  />
+
+  <div id="servicesContainer">در حال بارگذاری سرویس‌ها...</div>
+  <div id="pagination"></div>
+
+  <script>
+
+    Telegram.WebApp.ready();
+
+    // درخواست برای نمایش تمام‌صفحه
+    Telegram.WebApp.expand();
+
+    function getQueryParam(param) {
+      const urlParams = new URLSearchParams(window.location.search);
+      return urlParams.get(param);
+    }
+
+    const user_id = getQueryParam("user_id");
+    console.log("User ID from URL:", user_id);
+
+    function bytesToGB(bytes) {
+      return (bytes / (1024 ** 3)).toFixed(2);
+    }
+
+    function calculateExpireDays(expiryTimestamp) {
+    if (!expiryTimestamp || isNaN(expiryTimestamp)) {
+      // اگر تاریخ انقضا وجود نداشت، ۳۰ روز پیش فرض قرار بده (یعنی ۳۰ روز آینده از همین الان)
+      return 30;
+    }
+
+    const absExpiry = Math.abs(expiryTimestamp);
+    const now = Date.now();
+    const diff = absExpiry - now;
+
+    const oneDayMs = 1000 * 60 * 60 * 24;
+
+    return diff > 0 ? Math.ceil(diff / oneDayMs) : 0;
+  }
+
+
+
+
+    const ITEMS_PER_PAGE = 10;
+    let currentPage = 1;
+    let servicesData = [];
+    let filteredData = [];
+
+    function showStatusMessage(message, isError = false) {
+      const msgDiv = document.getElementById('statusMessage');
+      msgDiv.innerText = message;
+      msgDiv.style.color = isError ? 'red' : 'green';
+      msgDiv.style.display = 'block';
+
+      setTimeout(() => {
+        msgDiv.style.display = 'none';
+      }, 3000);
+    }
+
+    async function loadServices(userId) {
+  try {
+    const response = await fetch(`/list_users?user_id=${userId}`);
+    const data = await response.json();
+
+    // 👈 نمایش موجودی جدا از وضعیت سرویس‌ها
+    const bal = Number(data.balance);
+    if (!isNaN(bal)) {
+      document.getElementById('balanceDisplay').innerText =
+        'موجودی: ' + bal.toLocaleString() + ' تومان';
+    } else {
+      document.getElementById('balanceDisplay').innerText = '';
+    }
+
+    // 👈 بررسی وضعیت سرویس‌ها
+    const clients = Array.isArray(data.clients) ? data.clients : [];
+
+    if (clients.length > 0) {
+      servicesData = clients;
+      filteredData = servicesData;
+      currentPage = 1;
+      renderPage(currentPage);
+      renderPagination();
+    } else {
+      document.getElementById('servicesContainer').innerText = 'شما سرویسی ندارید.';
+      document.getElementById('pagination').innerHTML = '';
+    }
+
+  } catch (error) {
+    // 👈 اگر خطا بود، فقط بگو سرویسی نیست. موجودی رو دست نزن
+    document.getElementById('servicesContainer').innerText = 'شما سرویسی ندارید.';
+    document.getElementById('pagination').innerHTML = '';
+  }
+}
+
+function renderServices(services) {
+  const container = document.getElementById('servicesContainer');
+  container.innerHTML = '';
+    
+  if (services.length === 0) {
+    container.innerText = 'موردی یافت نشد.';
+    return;
+  }
+
+  services.forEach(service => {
+    const usedBytes = service.up + service.down;
+    const usedGB = bytesToGB(usedBytes);
+    const totalGB = bytesToGB(service.total);
+    const remainingGB = totalGB - usedGB;
+    const expireDays = calculateExpireDays(service.mytime);
+    const expireText = expireDays > 0 ? `${expireDays} روز مانده` : 'منقضی شده';
+    // const showRenew = (expireDays <= 5 && expireDays > 0) || remainingGB < 5; 
+    const showRenew =true
+   
+    //////////////less than volume and expire
+
+    const card = document.createElement('div');
+    card.className = 'service-card';
+    if (expireDays <= 0) card.classList.add('inactive');
+
+    card.innerHTML = `
+      <div class="service-title">${service.email}</div>
+      <div class="service-info">حجم کل: ${totalGB} گیگابایت</div>
+      <div class="service-info">حجم مصرف شده: ${usedGB} گیگابایت</div>
+      <div class="service-info">انقضا: ${expireText}</div>
+      <div class="service-info" style="color: #000; font-weight: bold; font-size: 16px;">
+        نام کاربری: ${service.comment ? service.comment : 'بدون نظر'}
+      </div>
+      <div class="buttons">
+        <button class="btn-view" onclick="viewService(${service.id})">نمایش</button>
+        ${showRenew ? `<button class="btn-renew" onclick="renewService(${service.id})">تمدید</button>` : ''}
+        <button class="btn-delete" onclick="deleteService(${service.id})">حذف</button>
+      </div>
+    `;
+
+    container.appendChild(card);
+  });
+}
+
+    function renderPage(page) {
+      const start = (page - 1) * ITEMS_PER_PAGE;
+      const end = start + ITEMS_PER_PAGE;
+      const pageItems = filteredData.slice(start, end);
+      renderServices(pageItems);
+    }
+
+    function renderPagination() {
+      const pagination = document.getElementById('pagination');
+      const totalPages = Math.ceil(filteredData.length / ITEMS_PER_PAGE);
+
+      if (totalPages <= 1) {
+        pagination.innerHTML = '';
+        return;
+      }
+
+      let buttonsHTML = '';
+
+      buttonsHTML += `<button ${currentPage === 1 ? 'disabled' : ''} onclick="changePage(${currentPage - 1})">قبلی</button>`;
+
+      for (let i = 1; i <= totalPages; i++) {
+        buttonsHTML += `<button class="${i === currentPage ? 'active' : ''}" onclick="changePage(${i})">${i}</button>`;
+      }
+
+      buttonsHTML += `<button ${currentPage === totalPages ? 'disabled' : ''} onclick="changePage(${currentPage + 1})">بعدی</button>`;
+
+      pagination.innerHTML = buttonsHTML;
+    }
+
+    function changePage(page) {
+      if (page < 1 || page > Math.ceil(filteredData.length / ITEMS_PER_PAGE)) return;
+      currentPage = page;
+      renderPage(page);
+      renderPagination();
+      window.scrollTo({top: 0, behavior: 'smooth'});
+    }
+
+    async function renewService(id) {
+    const selectedService = servicesData.find(service => String(service.id) === String(id));
+
+    if (!selectedService) {
+      console.error("سرویس موردنظر پیدا نشد:", id);
+      return;
+    }
+
+    // ذخیره اطلاعات در sessionStorage
+    sessionStorage.setItem('selectedService', JSON.stringify(selectedService));
+    sessionStorage.setItem('user_id', user_id);
+    // هدایت به صفحه بروزرسانی
+    window.location.href = '/update.html';
+  }
+    function viewService(id) {
+    const selectedService = servicesData.find(service => String(service.id) === String(id));
+
+    if (!selectedService) {
+      console.error('سرویس با این ID پیدا نشد:', id);
+      return;
+    }
+
+    fetch('/show_services', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        service: selectedService,
+        user_id: user_id
+      })
+    })
+    .then(response => {
+      if (!response.ok) {
+        throw new Error('خطا در ارتباط با سرور');
+      }
+      return response.json();
+    })
+    .then(data => {
+      console.log('پاسخ سرور:', data);
+
+      // اضافه شده: اگر جواب سرور شامل close_app بود، اپ تلگرام رو ببند
+      if (data.close_app) {
+        setTimeout(() => {
+          Telegram.WebApp.close();
+        }, 500);
+      }
+    })
+    .catch(error => {
+      console.error('خطا:', error);
+    });
+  }
+
+
+
+  async function deleteService(id) {
+  if (!confirm("آیا از حذف این سرویس مطمئن هستید؟")) return;
+
+  // پیدا کردن سرویس انتخاب‌شده
+  const selectedService = servicesData.find(service => String(service.id) === String(id));
+
+  if (!selectedService) {
+    console.error("سرویس موردنظر برای حذف پیدا نشد:", id);
+    return;
+  }
+
+  try {
+    const response = await fetch('/delete_service', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ 
+        service: selectedService,
+        user_id: user_id  // فرض بر اینکه user_id از URL گرفته شده
+      }),
+    });
+
+    const result = await response.json();
+
+    if (response.ok && result.Status === 'success') {
+      // قالب‌بندی پیام و مبلغ با جداکننده هزارگان فارسی
+      let message = result.message || '';
+      const regex = /([0-9,.]+)/; // پیدا کردن عدد در پیام
+      const match = message.match(regex);
+
+      if (match) {
+        const rawNumber = parseFloat(match[1].replace(/,/g, ''));
+        const formatted = Number.isInteger(rawNumber)
+          ? rawNumber.toLocaleString('en-US')
+          : rawNumber.toLocaleString('en-US', { minimumFractionDigits: 1 });
+        message = message.replace(match[1], formatted);
+      }
+
+      // اضافه کردن علامت تیک سبز اگر نبود
+      if (!message.includes('✅')) {
+        message = '✅ ' + message;
+      }
+
+      // حذف نقطه اضافی در انتهای پیام
+      message = message.trim().replace(/[.]+$/, '');
+
+      // نمایش پیام با alert
+      alert(message);
+
+      // نمایش موجودی جدید در صفحه
+      const bal = Number(result.balance);
+      if (!isNaN(bal)) {
+        document.getElementById('balanceDisplay').innerText =
+          'موجودی: ' + bal.toLocaleString('en-US') + ' تومان';
+      }
+
+      // حذف سرویس از داده‌های محلی
+      servicesData = servicesData.filter(service => service.id !== id);
+      filteredData = filteredData.filter(service => service.id !== id);
+
+      // بروزرسانی صفحه
+      if (filteredData.length === 0 && currentPage > 1) {
+        currentPage--;
+      }
+      renderPage(currentPage);
+      renderPagination();
+
+      // بستن اپ اگر لازم بود
+      if (result.close_app) {
+        setTimeout(() => {
+          Telegram.WebApp.close();
+        }, 500);
+      }
+
+    } else {
+      alert('❌ خطا در حذف سرویس: ' + (result.message || 'خطای ناشناخته'));
+    }
+
+  } catch (error) {
+    console.error('خطا در حذف سرویس:', error);
+    alert('⚠️ خطا در ارتباط با سرور');
+  }
+}
+    document.getElementById('searchInput').addEventListener('input', (e) => {
+    const searchText = e.target.value.trim().toLowerCase();
+    filteredData = servicesData.filter(service =>
+      service.email.toLowerCase().includes(searchText) ||
+      (service.comment && service.comment.toLowerCase().includes(searchText))
+    );
+    currentPage = 1;
+    renderPage(currentPage);
+    renderPagination();
+    });
+
+    if (user_id) {
+      loadServices(user_id);
+    } else {
+      document.getElementById('balanceDisplay').innerText = 'شناسه کاربر پیدا نشد.';
+      document.getElementById('servicesContainer').innerText = '';
+    }
+  </script>
+</body>
+</html>

@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <meta charset="UTF-8">
+  <title>تمدید کانفیگ</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <link href="https://cdn.fontcdn.ir/Font/Persian/BYekan.css" rel="stylesheet" type="text/css" />
+  <style>
+    /* استایل‌ها بدون تغییر */
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+      font-family: 'BYekan', sans-serif;
+    }
+    html, body {
+      height: 100%;
+      overflow: hidden;
+      background-color: #f2f2f2;
+    }
+    body {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+    }
+    .container {
+      background: white;
+      padding: 25px 30px;
+      border-radius: 10px;
+      box-shadow: 0 0 15px rgba(0, 0, 0, 0.1);
+      width: 90%;
+      max-width: 400px;
+      text-align: center;
+    }
+    h2 {
+      margin-bottom: 20px;
+      font-size: 22px;
+    }
+    input, select {
+      width: 100%;
+      padding: 10px;
+      margin: 10px 0 15px 0;
+      border: 1px solid #ccc;
+      border-radius: 5px;
+      font-size: 16px;
+    }
+    #price {
+      margin-bottom: 10px;
+      font-size: 16px;
+      color: #333;
+    }
+    #messageBox {
+      color: red;
+      font-size: 15px;
+      margin-bottom: 10px;
+      min-height: 20px;
+    }
+    button {
+      background-color: #4CAF50;
+      color: white;
+      border: none;
+      padding: 12px 20px;
+      border-radius: 5px;
+      font-size: 16px;
+      cursor: pointer;
+      width: 100%;
+    }
+    button:disabled {
+      background-color: #888;
+      cursor: not-allowed;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h2>تمدید کانفیگ</h2>
+    <div id="initialBalance" style="margin-bottom: 10px; font-weight: bold;">
+      موجودی شما: <span id="balanceAmount">-</span> تومان
+    </div>
+    <input type="text" id="username" placeholder="نام کاربری">
+    <select id="expire">
+      <option value="30">یک ماه</option>
+      <option value="60">دو ماه</option>
+      <option value="90">سه ماه</option>
+    </select>
+    <input type="number" id="volume" placeholder="حجم (10 تا 100 گیگ)"  min="1" max="100">
+    <div id="price">قیمت: - تومان</div>
+    <div id="messageBox"></div>
+    <button id="createBtn">تمدید کانفیگ</button>
+  </div>
+
+  <script>
+
+    Telegram.WebApp.ready();
+
+    const user_id = sessionStorage.getItem('user_id');
+    const selectedService = JSON.parse(sessionStorage.getItem('selectedService') || '{}');
+
+    console.log("User ID:", user_id);
+    console.log("Selected Service:", selectedService);
+
+    const PRICE_PER_GB = 5000;
+
+    window.addEventListener('DOMContentLoaded', () => {
+      if (selectedService && selectedService.comment) {
+        document.getElementById('username').value = selectedService.comment;
+        document.getElementById('volume').value = Math.round(selectedService.total / (1024 * 1024 * 1024));
+        document.getElementById('expire').value = 30; // یا مقداری که خودت بخوای
+
+        // *** اینجا بعد از پر کردن حجم، قیمت رو هم محاسبه کن ***
+        updatePrice();
+      }
+    });
+
+    async function loadInitialBalance() {
+      const response = await fetch(`/get_balance?user_id=${user_id}`);
+      if (response.ok) {
+        const data = await response.json();
+        const bal = Number(data.balance);
+        document.getElementById('balanceAmount').innerText = isNaN(bal) ? '0' : bal.toLocaleString();
+      }
+    }
+
+    async function checkCapacity() {
+      const res = await fetch('/check_capacity');
+      const data = await res.json();
+      const button = document.getElementById('createBtn');
+      if (!data.has_capacity) {
+        button.innerText = 'تکمیل ظرفیت';
+        button.disabled = true;
+      }
+    }
+
+    const usernameInput = document.getElementById('username');
+    const volumeInput = document.getElementById('volume');
+    const messageBox = document.getElementById('messageBox');
+
+    // فقط اجازه عدد وارد کردن در حجم
+    volumeInput.addEventListener('keypress', function(e) {
+      const char = String.fromCharCode(e.which);
+      if (!/[0-9]/.test(char)) {
+        e.preventDefault();
+      }
+    });
+
+    function validateInputs() {
+      const username = usernameInput.value.trim();
+      let error = '';
+
+      if (!username) {
+        error = "نام کاربری نباید خالی باشد.";
+      } else if (/^\d+$/.test(username)) {
+        error = "نام کاربری نمی‌تواند فقط عدد باشد.";
+      }
+
+      messageBox.style.color = 'red';
+      messageBox.innerText = error;
+
+      const createBtn = document.getElementById('createBtn');
+      createBtn.disabled = !!error;
+
+      return !error;
+    }
+
+    function validateInputvolume() {
+      const volumeStr = volumeInput.value.trim();
+      const volume = parseInt(volumeStr);
+      let error = '';
+
+      if (!volumeStr) {
+        error = "حجم نباید خالی باشد.";
+      } else if (isNaN(volume) || volume < 10 || volume > 100) {
+        error = "حجم باید بین 10 تا 100 گیگ باشد.";
+      }
+
+      messageBox.style.color = 'red';
+      messageBox.innerText = error;
+
+      const createBtn = document.getElementById('createBtn');
+      createBtn.disabled = !!error;
+
+      return !error;
+    }
+
+    // *** تابع محاسبه قیمت ***
+    function updatePrice() {
+      const volume = parseInt(volumeInput.value || 0);
+      const price = volume * PRICE_PER_GB;
+      document.getElementById('price').innerText = `قیمت: ${price.toLocaleString()} تومان`;
+    }
+
+    usernameInput.addEventListener('input', validateInputs);
+
+    volumeInput.addEventListener('input', () => {
+      updatePrice();   // محاسبه قیمت در هنگام تغییر حجم
+      validateInputs();
+      setTimeout(validateInputvolume, 200);
+    });
+
+    document.getElementById('createBtn').addEventListener('click', async () => {
+      const createBtn = document.getElementById('createBtn');
+
+      // چک نام کاربری
+      if (!validateInputs()) return;
+
+      // چک حجم خالی یا نامعتبر
+      const volumeStr = volumeInput.value.trim();
+      const volume = parseInt(volumeStr);
+      if (!volumeStr) {
+        messageBox.style.color = 'red';
+        messageBox.innerText = "حجم نباید خالی باشد.";
+        createBtn.disabled = true;
+        return;
+      }
+      if (isNaN(volume) || volume < 10 || volume > 100) {
+        messageBox.style.color = 'red';
+        messageBox.innerText = "حجم باید بین 10 تا 100 گیگ باشد.";
+        createBtn.disabled = true;
+        return;
+      }
+
+      createBtn.disabled = true;
+
+      const username = usernameInput.value.trim();
+      const expire = document.getElementById('expire').value;
+      messageBox.innerText = '';
+
+      const response = await fetch('/update_user', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ username, expire, volume, user_id, service: selectedService })
+      });
+
+      const result = await response.json();
+
+      if (response.status === 403 && result.message === "موجودی کافی نیست") {
+        messageBox.style.color = 'red';
+        messageBox.innerText = "⚠️ موجودی شما کافی نیست.";
+        createBtn.innerText = 'عدم موجودی';
+        return;
+      } else {
+        // messageBox.style.color = 'green';
+        // messageBox.innerText = result.message;
+        alert(result.message);
+        const bal = Number(result.balance);
+        if (typeof bal === 'number' && !isNaN(bal)) {
+          document.getElementById('balanceAmount').innerText = bal.toLocaleString('en-US');
+        }
+        if (result.close_app) {
+          setTimeout(() => {
+            Telegram.WebApp.close();
+          }, 2000);
+        }
+      }
+
+    });
+
+    checkCapacity();
+    loadInitialBalance();
+
+  </script>
+</body>
+</html>
